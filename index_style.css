@@ -1,0 +1,41 @@
+:root { --f1-red: #e10600; --f1-black: #15151e; --f1-dark: #1f1f27; }
+body { background-color: var(--f1-black); color: white; font-family: 'Titillium Web', sans-serif; text-align: center; padding: 50px 20px; }
+.container { max-width: 500px; margin: 0 auto; background: var(--f1-dark); padding: 30px; border-top: 5px solid var(--f1-red); border-radius: 8px; }
+h1 { font-style: italic; text-transform: uppercase; letter-spacing: 2px; }
+.btn { display: block; width: 100%; padding: 15px; margin: 15px 0; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; text-decoration: none; font-size: 1.1em; transition: 0.3s; }
+.btn-new { background: var(--f1-red); color: white; }
+.btn-recover { background: #444; color: white; border: 1px solid #666; }
+input { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #444; background: #15151e; color: white; box-sizing: border-box; }
+.hidden { display: none; }
+#home-link {
+    display: inline-flex;
+    align-items: center;
+    background-color: var(--f1-red);
+    color: white;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 20px; /* The rounded look */
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#home-link:hover {
+    background-color: #ff1e18; /* A slightly brighter red on hover */
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(225, 6, 0, 0.3);
+}
+
+#home-link:active {
+    transform: translateY(0);
+}
+
+/* Optional: styling the arrow specifically */
+#home-link span {
+    margin-right: 8px;
+    font-size: 1.1rem;
+    line-height: 0;
+}
