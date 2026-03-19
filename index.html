@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Bingo - Join the Race</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:ital,wght@0,400;0,700;1,700&display=swap" rel="stylesheet">
+    <style>
+        :root { --f1-red: #e10600; --f1-black: #15151e; --f1-dark: #1f1f27; }
+        body { background-color: var(--f1-black); color: white; font-family: 'Titillium Web', sans-serif; text-align: center; padding: 50px 20px; }
+        .container { max-width: 500px; margin: 0 auto; background: var(--f1-dark); padding: 30px; border-top: 5px solid var(--f1-red); border-radius: 8px; }
+        h1 { font-style: italic; text-transform: uppercase; letter-spacing: 2px; }
+        .btn { display: block; width: 100%; padding: 15px; margin: 15px 0; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; text-decoration: none; font-size: 1.1em; transition: 0.3s; }
+        .btn-new { background: var(--f1-red); color: white; }
+        .btn-recover { background: #444; color: white; border: 1px solid #666; }
+        input { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #444; background: #15151e; color: white; box-sizing: border-box; }
+        .hidden { display: none; }
+        #home-link {
+            display: inline-flex;
+            align-items: center;
+            background-color: var(--f1-red);
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px; /* The rounded look */
+            font-size: 0.85rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #home-link:hover {
+            background-color: #ff1e18; /* A slightly brighter red on hover */
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(225, 6, 0, 0.3);
+        }
+
+        #home-link:active {
+            transform: translateY(0);
+        }
+
+        /* Optional: styling the arrow specifically */
+        #home-link span {
+            margin-right: 8px;
+            font-size: 1.1rem;
+            line-height: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="top-nav">
+        <a id="home-link" href="leaderboard.html">
+            Leaderboard
+        </a>
+    </div>
+    <h1>F1 Bingo 2026</h1>
+    <p>Select your entry type below</p>
+
+    <a href="player.html" class="btn btn-new" onclick="localStorage.removeItem('f1_bingo_id')">New Board</a>
+
+    <hr style="border: 0.5px solid #444; margin: 25px 0;">
+
+    <div id="recovery-section">
+        <p>Already registered on another device?</p>
+        <input type="text" id="recover-name" placeholder="Enter your Driver Name (case sensitive and unique)">
+        <button class="btn btn-recover" onclick="recoverBoard()">Find My Board</button>
+    </div>
+    <hr style="border: 0.5px solid #444; margin: 25px 0;">
+    <div id="grid-section" style="margin-top: 30px; text-align: left;">
+        <h3 style="font-style: italic; border-left: 4px solid var(--f1-red); padding-left: 10px; text-transform: uppercase; font-size: 0.9rem;">
+            Current Starting Grid
+        </h3>
+        <div id="driver-list" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 4px; padding: 10px; font-size: 0.85rem; margin-top: 10px;">
+            Loading drivers...
+        </div>
+    </div>
+    <div style="margin-top: 30px; border-top: 1px solid #333; padding-top: 15px;">
+        <a href="host.html" style="color: #666; text-decoration: none; font-size: 0.8em; letter-spacing: 1px;">
+            HOST ACCESS
+        </a>
+    </div>
+
+</div>
+
+<script>
+    const db = supabase.createClient('https://aqsaztcdkcbnhstjseam.supabase.co', 'sb_publishable_Q7mqIq2YrT3vscykJmLvOA_AliGTKCe');
+
+    async function recoverBoard() {
+        const nameInput = document.getElementById('recover-name');
+        const recoverBtn = document.querySelector('.btn-recover');
+        const name = nameInput.value.trim();
+
+        if (!name) return alert("Please enter your Driver Name!");
+
+        // UI Feedback
+        recoverBtn.innerText = "Searching Grid...";
+        recoverBtn.disabled = true;
+
+        // Search for the unique board
+        const { data, error } = await db.from('player_boards')
+            .select('id')
+            .eq('player_name', name)
+            .maybeSingle(); // We use maybeSingle because names are now unique
+
+        if (error) {
+            console.error(error);
+            alert("Encountered issue with data lookup, possibly more than 1 entries under this name");
+            recoverBtn.innerText = "Find My Board";
+            recoverBtn.disabled = false;
+        } else if (data) {
+            localStorage.setItem('f1_bingo_id', data.id);
+            window.location.href = 'player.html';
+        } else {
+            alert("Driver not found in the standings. Check your spelling or start a new board!");
+            recoverBtn.innerText = "Find My Board";
+            recoverBtn.disabled = false;
+        }
+    }
+
+    async function loadStartingGrid() {
+        const listEl = document.getElementById('driver-list');
+        
+        const { data, error } = await db
+            .from('player_boards')
+            .select('player_name, id')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            listEl.innerText = "Error loading grid.";
+            return;
+        }
+
+        if (data.length === 0) {
+            listEl.innerText = "No drivers registered yet.";
+            return;
+        }
+
+        listEl.innerHTML = ""; // Clear loader
+        data.forEach(player => {
+            const div = document.createElement('div');
+            div.style.padding = "8px 5px";
+            div.style.borderBottom = "1px solid #333";
+            div.style.display = "flex";
+            div.style.justifyContent = "space-between";
+            div.style.alignItems = "center";
+
+            // Create a link so people can view the board
+            div.innerHTML = `
+                <span style="color: #eee;">${player.player_name}</span>
+                <button onclick="viewBoard('${player.id}')" style="background: transparent; border: 1px solid var(--f1-red); color: var(--f1-red); font-size: 0.7rem; padding: 2px 8px; border-radius: 3px; cursor: pointer;">
+                    VIEW BOARD
+                </button>
+            `;
+            listEl.appendChild(div);
+        });
+    }
+
+    function viewBoard(id) {
+        localStorage.setItem('f1_bingo_id', id);
+        window.location.href = 'player.html';
+    }
+
+    loadStartingGrid();
+</script>
+
+</body>
+</html>

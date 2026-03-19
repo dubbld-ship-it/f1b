@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Bingo 2026 | Official Standings</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --f1-red: #e10600;
+            --dark-bg: #15151e;
+            --card-bg: #1f1f27;
+            --text-gold: #ffc107;
+            --bingo-blue: #00d2ff;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: white;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 1000px; margin: 0 auto; }
+
+        header {
+            text-align: center;
+            border-bottom: 4px solid var(--f1-red);
+            margin-bottom: 30px;
+            padding-bottom: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+
+        .tab-btn {
+            background: var(--card-bg);
+            border: none;
+            color: #aaa;
+            padding: 12px 24px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-radius: 4px 4px 0 0;
+            transition: 0.3s;
+        }
+
+        .tab-btn.active {
+            background: var(--f1-red);
+            color: white;
+        }
+
+        .view { display: none; background: var(--card-bg); padding: 20px; border-radius: 8px; }
+        .view.active { display: block; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th {
+            text-align: left;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            color: #888;
+            padding: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        td { padding: 12px 10px; border-bottom: 1px solid #2a2a32; }
+
+        .pos { font-weight: 900; font-style: italic; color: #888; width: 40px; }
+        .driver-name { font-weight: bold; font-size: 1.1rem; }
+        .pts { font-weight: bold; color: var(--f1-red); text-align: right; }
+        
+        .filter-section { margin-bottom: 20px; text-align: center; }
+        select {
+            background: #2a2a32;
+            color: white;
+            padding: 8px;
+            border: 1px solid #444;
+            border-radius: 4px;
+        }
+
+        .meta { font-size: 0.85rem; color: #666; margin-top: 15px; text-align: center; }
+        #top-nav {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        #home-link {
+            display: inline-flex;
+            align-items: center;
+            background-color: var(--f1-red);
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px; /* The rounded look */
+            font-size: 0.85rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #home-link:hover {
+            background-color: #ff1e18; /* A slightly brighter red on hover */
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(225, 6, 0, 0.3);
+        }
+
+        #home-link:active {
+            transform: translateY(0);
+        }
+
+        /* Optional: styling the arrow specifically */
+        #home-link span {
+            margin-right: 8px;
+            font-size: 1.1rem;
+            line-height: 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="top-nav">
+        <a id="home-link" href="index.html">
+            <span>&larr;</span> Back to Paddock
+        </a>
+        <a id="home-link" href="leaderboard.html">
+            Leaderboard
+        </a>
+    </div>
+    <header>
+        <h1>F1 BINGO <span style="color:var(--f1-red)">2026</span></h1>
+        <p>Official Championship Standings</p>
+    </header>
+    <div class="body">
+        <p>
+            This leaderboard only updates upon Race Control officially ending a race.
+        </p>
+    </div>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('season')">Season Standings</button>
+        <button class="tab-btn" onclick="switchTab('race')">Race Results</button>
+    </div>
+
+    <div id="season-view" class="view active">
+        <table>
+            <thead>
+                <tr>
+                    <th>Pos</th>
+                    <th>Driver</th>
+                    <th>Races</th>
+                    <th>Wins</th>
+                    <th>Podiums</th>
+                    <th>Bingos</th>
+                    <th style="text-align:right">Total Pts</th>
+                </tr>
+            </thead>
+            <tbody id="season-body"></tbody>
+        </table>
+        <div id="season-meta" class="meta"></div>
+    </div>
+
+    <div id="race-view" class="view">
+        <div class="filter-section">
+            <select id="race-selector" onchange="renderRaceResults()">
+                </select>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Pos</th>
+                    <th>Driver</th>
+                    <th>Hits</th>
+                    <th>Bingos</th>
+                    <th>Squares</th>
+                    <th>Bonus</th>
+                    <th style="text-align:right">Total</th>
+                </tr>
+            </thead>
+            <tbody id="race-body"></tbody>
+        </table>
+        <div id="race-meta" class="meta"></div>
+    </div>
+</div>
+
+<script>
+    // --- DATABASE CONFIG ---
+    const db = supabase.createClient('https://aqsaztcdkcbnhstjseam.supabase.co', 'sb_publishable_Q7mqIq2YrT3vscykJmLvOA_AliGTKCe');
+
+    let allData = [];
+
+    async function fetchData() {
+        const { data, error } = await db
+            .from('leaderboard')
+            .select('*')
+            .order('race_round', { ascending: true });
+        
+        if (error) {
+            console.error("Fetch error:", error);
+            return;
+        }
+        allData = data || [];
+        
+        renderSeasonStandings();
+        populateRaceSelector();
+    }
+
+    function renderSeasonStandings() {
+        const tbody = document.getElementById('season-body');
+        tbody.innerHTML = '';
+        
+        const totals = new Map();
+        allData.forEach(row => {
+            const key = row.player_name; // Or player_id
+            if (!totals.has(key)) {
+                totals.set(key, { name: key, pts: 0, races: 0, wins: 0, podiums: 0, bingos: 0 });
+            }
+            const t = totals.get(key);
+            t.pts += row.score;
+            t.races += 1;
+            t.bingos += (row.bingo_count || 0);
+            if (row.position === 1) t.wins += 1;
+            if (row.position <= 3) t.podiums += 1;
+        });
+
+        const sorted = [...totals.values()].sort((a,b) => b.pts - a.pts || b.wins - a.wins);
+
+        sorted.forEach((d, i) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="pos">${i+1}</td>
+                <td class="driver-name">${d.name}</td>
+                <td>${d.races}</td>
+                <td style="color:var(--text-gold)">${d.wins}</td>
+                <td>${d.podiums}</td>
+                <td style="color:var(--bingo-blue)">${d.bingos}</td>
+                <td class="pts">${d.pts}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+        document.getElementById('season-meta').innerText = `Aggregated from ${new Set(allData.map(r => r.race_name)).size} races.`;
+    }
+
+    function populateRaceSelector() {
+        const selector = document.getElementById('race-selector');
+        const races = [...new Set(allData.map(r => r.race_name))];
+        selector.innerHTML = races.map(r => `<option value="${r}">${r}</option>`).join('');
+        renderRaceResults();
+    }
+
+    function renderRaceResults() {
+        const selectedRace = document.getElementById('race-selector').value;
+        const tbody = document.getElementById('race-body');
+        tbody.innerHTML = '';
+
+        const filtered = allData.filter(r => r.race_name === selectedRace)
+                                .sort((a,b) => (a.position || 99) - (b.position || 99));
+
+        filtered.forEach(row => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="pos">${row.position}</td>
+                <td class="driver-name">${row.player_name}</td>
+                <td>${row.events_hit}</td>
+                <td style="color:var(--bingo-blue)">${row.bingo_count}</td>
+                <td>${row.square_pts}</td>
+                <td style="color:var(--text-gold)">+${row.bingo_bonus}</td>
+                <td class="pts">${row.score}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn, .view').forEach(el => el.classList.remove('active'));
+        document.getElementById(tab + '-view').classList.add('active');
+        event.target.classList.add('active');
+    }
+
+    // REALTIME: Listen for when Host ends a race
+    db.channel('leaderboard-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboard' }, fetchData)
+      .subscribe();
+
+    fetchData();
+</script>
+</body>
+</html>
