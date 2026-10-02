@@ -536,11 +536,17 @@ async function finalizeBoard() {
     // 1. Security Check: Does this name already exist in the DB?
     const { data: existing, error: checkError } = await db
         .from('player_boards')
-        .select('id')
+        .select('id, layout')
         .eq('player_name', name)
         .maybeSingle();
 
-    if (existing && String(existing.id) !== String(myBoardData.id || '')) {
+    const existingBoardWasReset = existing
+        && Array.isArray(existing.layout)
+        && existing.layout.length === 0;
+    const ownsExistingBoard = existing
+        && String(existing.id) === String(myBoardData.id || '');
+
+    if (existing && !ownsExistingBoard && !existingBoardWasReset) {
         alert("This Driver Name is already registered! Please refresh and choose a unique name (e.g., " + name + " #2).");
         return; // Stop the registration
     }
@@ -548,6 +554,10 @@ async function finalizeBoard() {
     if (checkError) {
         console.error("Database check failed:", checkError);
         return;
+    }
+
+    if (existingBoardWasReset) {
+        myBoardData.id = existing.id;
     }
 
     // 2. Create a first board or replace this driver's cleared board for the new race.
