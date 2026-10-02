@@ -37,7 +37,7 @@ async function loadStartingGrid() {
     
     const { data, error } = await db
         .from('player_boards')
-        .select('player_name, id')
+        .select('player_name, id, layout')
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -45,13 +45,17 @@ async function loadStartingGrid() {
         return;
     }
 
-    if (data.length === 0) {
+    const activePlayers = (data || []).filter(player => (
+        Array.isArray(player.layout) && player.layout.length === 25
+    ));
+
+    if (activePlayers.length === 0) {
         listEl.innerText = "No drivers registered yet.";
         return;
     }
 
     listEl.innerHTML = ""; // Clear loader
-    data.forEach(player => {
+    activePlayers.forEach(player => {
         const div = document.createElement('div');
         div.style.padding = "8px 5px";
         div.style.borderBottom = "1px solid #333";

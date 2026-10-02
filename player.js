@@ -22,6 +22,7 @@ let winOverlayDismissed = false;
 let leaderboardRows = [];
 let leaderboardByRace = new Map();
 let activeLeaderboardTab = 'season';
+let currentRaceRound = null;
 
 const WINNING_LINES = [
     [0,1,2,3,4], [5,6,7,8,9], [10,11,12,13,14], [15,16,17,18,19], [20,21,22,23,24], // Rows
@@ -35,24 +36,26 @@ function updateRaceNameDisplay(raceName) {
     raceEl.innerText = clean ? `Race: ${clean}` : 'Race: Not selected';
 }
 
-async function loadSelectedRaceName() {
+async function loadSelectedRaceConfig() {
     const { data, error } = await db
         .from('app_config')
-        .select('value')
-        .eq('key', 'selected_race_name')
-        .maybeSingle();
+        .select('key, value')
+        .in('key', ['selected_race_name', 'selected_race_round']);
 
     if (error) {
-        console.error('Could not load selected race name:', error);
+        console.error('Could not load selected race config:', error);
         updateRaceNameDisplay('');
         return;
     }
 
-    updateRaceNameDisplay(data?.value || '');
+    const raceName = (data || []).find(row => row.key === 'selected_race_name')?.value || '';
+    const raceRound = Number((data || []).find(row => row.key === 'selected_race_round')?.value);
+    currentRaceRound = Number.isInteger(raceRound) && raceRound > 0 ? raceRound : null;
+    updateRaceNameDisplay(raceName);
 }
 
 async function init() {
-    await loadSelectedRaceName();
+    await loadSelectedRaceConfig();
 
     // 1. Fetch points/pool FIRST so renderBoard always has data
     const { data: pool } = await db.from('f1_events_pool').select('Event, points');
@@ -73,23 +76,31 @@ async function init() {
 
 async function loadExistingBoard() {
     const { data } = await db.from('player_boards').select('*').eq('id', myBoardData.id).maybeSingle();
-    if (data) {
+    const hasActiveBoard = data && Array.isArray(data.layout) && data.layout.length === 25;
+
+    if (hasActiveBoard) {
         myBoardData.playerName = data.player_name;
         myBoardData.layout = data.layout;
         myBoardData.marks = data.marks || [];
         isEditing = false;
         document.getElementById('status').innerText = `Driver: ${data.player_name}`;
         renderBoard();
+    } else if (data) {
+        myBoardData.id = data.id;
+        await showSetupScreen(data.player_name);
     } else {
         localStorage.removeItem('f1_bingo_id');
         showSetupScreen();
     }
 }
 
-async function showSetupScreen() {
-    const name = prompt("Enter your Driver Name:");
+async function showSetupScreen(existingName = '') {
+    const name = existingName || prompt("Enter your Driver Name:");
     if (!name) return;
     myBoardData.playerName = name;
+    myBoardData.marks = [];
+    winOverlayDismissed = false;
+    document.getElementById('win-overlay').style.display = 'none';
 
     // Fetch pool (ensure 'points' is lowercase to match your DB)
     const { data: pool } = await db.from('f1_events_pool').select('Event, points');
@@ -517,6 +528,11 @@ async function openLeaderboardModal() {
 async function finalizeBoard() {
     const name = myBoardData.playerName;
 
+    if (!Array.isArray(myBoardData.layout) || myBoardData.layout.length !== 25) {
+        alert('Your board is incomplete. Please generate a new board before locking in.');
+        return;
+    }
+
     // 1. Security Check: Does this name already exist in the DB?
     const { data: existing, error: checkError } = await db
         .from('player_boards')
@@ -524,7 +540,7 @@ async function finalizeBoard() {
         .eq('player_name', name)
         .maybeSingle();
 
-    if (existing) {
+    if (existing && String(existing.id) !== String(myBoardData.id || '')) {
         alert("This Driver Name is already registered! Please refresh and choose a unique name (e.g., " + name + " #2).");
         return; // Stop the registration
     }
@@ -534,20 +550,49 @@ async function finalizeBoard() {
         return;
     }
 
-    // 2. Proceed with registration if name is unique
-    const { data, error } = await db.from('player_boards').insert({
+    // 2. Create a first board or replace this driver's cleared board for the new race.
+    const boardPayload = {
         player_name: name,
         layout: myBoardData.layout,
         marks: []
-    }).select().single();
+    };
+    let boardQuery = myBoardData.id
+        ? db.from('player_boards').update(boardPayload).eq('id', myBoardData.id)
+        : db.from('player_boards').insert(boardPayload);
+    const { data, error } = await boardQuery.select().single();
 
     if (!error) {
         localStorage.setItem('f1_bingo_id', data.id);
         myBoardData.id = data.id;
+        myBoardData.marks = [];
         isEditing = false;
         document.getElementById('setup-controls').style.display = 'none';
         document.getElementById('status').innerHTML = `Driver Profile: <span style="color:gold;">${data.player_name}</span> (Locked)`;
         renderBoard();
+    } else {
+        console.error('Could not save player board:', error);
+        alert('Could not lock in this board. Please try again.');
+    }
+}
+
+async function beginNewRaceRound(nextRound) {
+    if (!Number.isInteger(nextRound) || nextRound <= 0) return;
+    if (currentRaceRound === null) {
+        currentRaceRound = nextRound;
+        return;
+    }
+    if (nextRound === currentRaceRound) return;
+
+    currentRaceRound = nextRound;
+    liveEvents.clear();
+    myBoardData.marks = [];
+
+    if (myBoardData.playerName) {
+        await showSetupScreen(myBoardData.playerName);
+    } else if (myBoardData.id) {
+        await loadExistingBoard();
+    } else {
+        await showSetupScreen();
     }
 }
 
@@ -559,10 +604,23 @@ function setupListener() {
             else liveEvents.delete(payload.new.event_text);
             renderBoard(); // This will re-draw and trigger checkWinCondition()
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, (payload) => {
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'player_boards' }, async (payload) => {
+            const resetBoard = payload?.new;
+            const isCurrentPlayer = resetBoard?.id
+                && String(resetBoard.id) === String(myBoardData.id || '');
+            const wasCleared = Array.isArray(resetBoard?.layout) && resetBoard.layout.length === 0;
+            if (!isCurrentPlayer || !wasCleared) return;
+
+            liveEvents.clear();
+            await showSetupScreen(resetBoard.player_name || myBoardData.playerName);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, async (payload) => {
             const key = payload?.new?.key || payload?.old?.key;
-            if (key !== 'selected_race_name') return;
-            updateRaceNameDisplay(payload?.new?.value || '');
+            if (key === 'selected_race_name') {
+                updateRaceNameDisplay(payload?.new?.value || '');
+            } else if (key === 'selected_race_round') {
+                await beginNewRaceRound(Number(payload?.new?.value));
+            }
         }).subscribe();
 }
 

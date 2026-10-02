@@ -25,6 +25,8 @@ const FALLBACK_SCHEDULE_2026 = [
     { round: 22, name: 'Qatar Grand Prix' },
     { round: 23, name: 'Abu Dhabi Grand Prix' }
 ];
+let activeRaceName = '';
+let activeRaceRound = null;
 
 const rarityColors = {
     1: "#ffffff", // Common (White)
@@ -153,6 +155,8 @@ async function syncAppConfig() {
 
     select.value = savedRace;
     roundInput.value = savedRound;
+    activeRaceName = savedRace;
+    activeRaceRound = Number(savedRound) || null;
     
     select.disabled = false;
     updateHostTitle(savedRace);
@@ -177,6 +181,55 @@ async function saveAppConfigValue(key, value) {
     if (insertError) throw insertError;
 }
 
+async function resetActiveRaceState() {
+    const [liveResult, boardResult] = await Promise.all([
+        db.from('live_race_state')
+            .update({ is_happened: false })
+            .not('event_text', 'is', null),
+        db.from('player_boards')
+            .update({ layout: [], marks: [] })
+            .not('id', 'is', null)
+    ]);
+
+    if (liveResult.error) {
+        throw new Error(`Could not reset race events: ${liveResult.error.message}`);
+    }
+    if (boardResult.error) {
+        throw new Error(`Could not reset player boards: ${boardResult.error.message}`);
+    }
+}
+
+async function resetCurrentRace() {
+    const raceName = getSelectedRaceName();
+    const raceRound = getSelectedRaceRound();
+    if (!raceName) {
+        alert('Select a race before resetting it.');
+        return;
+    }
+
+    const confirmed = confirm(
+        `Reset active state for "${raceName}" (Round ${raceRound})?\n\n`
+        + `This clears all live event checks and active boards. Finalized leaderboard and history records are preserved.`
+    );
+    if (!confirmed) return;
+
+    const resetButton = document.getElementById('reset-race-btn');
+    resetButton.disabled = true;
+    resetButton.innerText = 'RESETTING...';
+
+    try {
+        await resetActiveRaceState();
+        await load();
+        alert(`RESET COMPLETE: ${raceName} (Round ${raceRound}) is ready for new boards.`);
+    } catch (err) {
+        console.error('Race reset failed:', err);
+        alert(`Could not reset the active race: ${err.message}`);
+    } finally {
+        resetButton.disabled = false;
+        resetButton.innerText = 'RESET ACTIVE RACE';
+    }
+}
+
 async function saveSelectedRace() {
     const select = document.getElementById('race-select');
     const roundInput = document.getElementById('race-round-input');
@@ -188,16 +241,44 @@ async function saveSelectedRace() {
     const raceRound = Number.isInteger(selectedRound) && selectedRound > 0
         ? selectedRound
         : getSelectedRaceRound();
+    const isNewRace = Boolean(activeRaceName)
+        && (raceName !== activeRaceName || raceRound !== activeRaceRound);
+
+    if (isNewRace) {
+        const confirmed = confirm(
+            `Start "${raceName}" (Round ${raceRound})?\n\n`
+            + `This clears all live event checks and active boards. `
+            + `Finalized results for ${activeRaceName} remain in the leaderboard and history.`
+        );
+
+        if (!confirmed) {
+            select.value = activeRaceName;
+            roundInput.value = String(activeRaceRound || 1);
+            updateHostTitle(activeRaceName);
+            return;
+        }
+    }
 
     roundInput.value = String(raceRound);
     select.disabled = true;
     roundInput.disabled = true;
 
     try {
+        if (isNewRace) {
+            await resetActiveRaceState();
+        }
+
         await Promise.all([
             saveAppConfigValue('selected_race_name', raceName),
             saveAppConfigValue('selected_race_round', raceRound)
         ]);
+
+        if (isNewRace) {
+            await load();
+        }
+
+        activeRaceName = raceName;
+        activeRaceRound = raceRound;
         console.log(`Race selection synced: ${raceName} (Round ${raceRound})`);
     } catch (err) {
         console.error('Failed to save race selection.', err);
@@ -528,10 +609,13 @@ async function endRace() {
             .select('id, player_name, layout');
 
         if (boardErr) throw new Error(`Could not load player boards: ${boardErr.message}`);
+        const activeBoards = (boards || []).filter(board => (
+            Array.isArray(board.layout) && board.layout.length === 25
+        ));
 
         // 2. CALCULATE SCORES
         // Passing raceRound here so buildLeaderboardRows can include it in the objects
-        const leaderboardRows = buildLeaderboardRows(raceName, raceRound, boards || [], liveRows || []);
+        const leaderboardRows = buildLeaderboardRows(raceName, raceRound, activeBoards, liveRows || []);
 
         // 3. PREPARE HISTORY PAYLOADS
         const eventHistoryEntries = (liveRows || []).map(row => ({
@@ -542,7 +626,7 @@ async function endRace() {
         }));
 
         const boardHistoryEntries = leaderboardRows.map(row => {
-            const originalBoard = boards.find(b => String(b.id) === row.player_id);
+            const originalBoard = activeBoards.find(b => String(b.id) === row.player_id);
             return {
                 race_name: raceName,
                 race_round: raceRound, // Added for board history
