@@ -1,30 +1,29 @@
 const db = supabase.createClient('https://aqsaztcdkcbnhstjseam.supabase.co', 'sb_publishable_Q7mqIq2YrT3vscykJmLvOA_AliGTKCe');
 const CHAMPIONSHIP_YEAR = 2026;
-const FALLBACK_RACES_2026 = [
-    'Australian Grand Prix',
-    'Chinese Grand Prix',
-    'Japanese Grand Prix',
-    'Bahrain Grand Prix',
-    'Saudi Arabian Grand Prix',
-    'Miami Grand Prix',
-    'Canadian Grand Prix',
-    'Monaco Grand Prix',
-    'Barcelona-Catalunya Grand Prix',
-    'Austrian Grand Prix',
-    'British Grand Prix',
-    'Belgian Grand Prix',
-    'Hungarian Grand Prix',
-    'Dutch Grand Prix',
-    'Italian Grand Prix',
-    'Spanish Grand Prix',
-    'Azerbaijan Grand Prix',
-    'Singapore Grand Prix',
-    'United States Grand Prix',
-    'Mexico City Grand Prix',
-    'Sao Paulo Grand Prix',
-    'Las Vegas Grand Prix',
-    'Qatar Grand Prix',
-    'Abu Dhabi Grand Prix'
+const FALLBACK_SCHEDULE_2026 = [
+    { round: 1, name: 'Australian Grand Prix' },
+    { round: 2, name: 'Chinese Grand Prix' },
+    { round: 3, name: 'Japanese Grand Prix' },
+    { round: 4, name: 'Miami Grand Prix' },
+    { round: 5, name: 'Canadian Grand Prix' },
+    { round: 6, name: 'Monaco Grand Prix' },
+    { round: 7, name: 'Barcelona-Catalunya Grand Prix' },
+    { round: 8, name: 'Austrian Grand Prix' },
+    { round: 9, name: 'British Grand Prix' },
+    { round: 10, name: 'Belgian Grand Prix' },
+    { round: 11, name: 'Hungarian Grand Prix' },
+    { round: 12, name: 'Dutch Grand Prix' },
+    { round: 13, name: 'Italian Grand Prix' },
+    { round: 14, name: 'Spanish Grand Prix' },
+    { round: 15, name: 'Azerbaijan Grand Prix' },
+    { round: 16, name: 'Bahrain Grand Prix in Malaysia' },
+    { round: 17, name: 'Singapore Grand Prix' },
+    { round: 18, name: 'United States Grand Prix' },
+    { round: 19, name: 'Mexico City Grand Prix' },
+    { round: 20, name: 'Sao Paulo Grand Prix' },
+    { round: 21, name: 'Las Vegas Grand Prix' },
+    { round: 22, name: 'Qatar Grand Prix' },
+    { round: 23, name: 'Abu Dhabi Grand Prix' }
 ];
 
 const rarityColors = {
@@ -56,30 +55,41 @@ function updateHostTitle(raceName) {
     title.innerText = `${raceName} - Race Control`;
 }
 
-function extractRaceNamesFromCalendar(calendarText, year) {
-    const raceNames = [];
-    const seen = new Set();
+function extractRaceScheduleFromCalendar(calendarText, year) {
+    const schedule = [];
+    const seenRounds = new Set();
     const linePattern = new RegExp(`FORMULA 1\\s+(.+?)\\s+${year}`, 'i');
 
     calendarText.split('\n').forEach(line => {
         if (!line.includes('FORMULA 1') || !line.includes(String(year))) return;
+        const roundMatch = line.match(/ROUND\s*(\d+)/i);
         const match = line.match(linePattern);
-        if (!match) return;
+        if (!roundMatch || !match) return;
 
         const candidate = match[1].replace(/\s+/g, ' ').trim();
         const isRaceName = /(GRAND PRIX|GRAN PREMIO|GRANDE PR)/i.test(candidate);
         const isTesting = /TESTING/i.test(candidate);
         if (!isRaceName || isTesting) return;
-        if (seen.has(candidate)) return;
+        const round = Number(roundMatch[1]);
+        if (!Number.isInteger(round) || seenRounds.has(round)) return;
 
-        seen.add(candidate);
-        raceNames.push(candidate);
+        const canonicalRace = FALLBACK_SCHEDULE_2026.find(race => race.round === round);
+        seenRounds.add(round);
+        schedule.push({
+            round,
+            name: canonicalRace?.name || candidate
+        });
     });
 
-    return raceNames;
+    return schedule.sort((a, b) => a.round - b.round);
 }
 
-async function fetchRaceNamesFromF1(year) {
+function isUsableRaceSchedule(schedule) {
+    return schedule.length >= 20
+        && schedule.every((race, index) => race.round === index + 1 && race.name);
+}
+
+async function fetchRaceScheduleFromF1(year) {
     const sources = [
         `https://r.jina.ai/http://www.formula1.com/en/racing/${year}`,
         `https://r.jina.ai/http://www.formula1.com/en/racing/${year}.html`
@@ -90,14 +100,14 @@ async function fetchRaceNamesFromF1(year) {
             const res = await fetch(source, { cache: 'no-store' });
             if (!res.ok) continue;
             const text = await res.text();
-            const races = extractRaceNamesFromCalendar(text, year);
-            if (races.length >= 20) return races;
+            const schedule = extractRaceScheduleFromCalendar(text, year);
+            if (isUsableRaceSchedule(schedule)) return schedule;
         } catch (err) {
             console.warn(`Could not fetch race list from ${source}`, err);
         }
     }
 
-    return FALLBACK_RACES_2026;
+    return FALLBACK_SCHEDULE_2026;
 }
 
 async function syncAppConfig() {
@@ -105,8 +115,8 @@ async function syncAppConfig() {
     const roundInput = document.getElementById('race-round-input');
 
     // 1. Parallel fetch: F1 Schedule + DB Config
-    const [races, configRes] = await Promise.all([
-        fetchRaceNamesFromF1(CHAMPIONSHIP_YEAR),
+    const [schedule, configRes] = await Promise.all([
+        fetchRaceScheduleFromF1(CHAMPIONSHIP_YEAR),
         db.from('app_config')
         .select('key, value')
         .in('key', ['selected_race_name', 'selected_race_round'])
@@ -114,10 +124,11 @@ async function syncAppConfig() {
 
     // 2. Populate Race Dropdown
     select.innerHTML = '<option value="">Select race</option>';
-    races.forEach(race => {
+    schedule.forEach(race => {
         const option = document.createElement('option');
-        option.value = race;
-        option.textContent = race;
+        option.value = race.name;
+        option.dataset.round = String(race.round);
+        option.textContent = `Round ${race.round}: ${race.name}`;
         select.appendChild(option);
     });
 
@@ -132,10 +143,11 @@ async function syncAppConfig() {
 
     // 4. Update UI Inputs
     // Handle custom race names not in the official F1 list
-    if (savedRace && !races.includes(savedRace)) {
+    if (savedRace && !schedule.some(race => race.name === savedRace)) {
         const customOption = document.createElement('option');
         customOption.value = savedRace;
-        customOption.textContent = savedRace;
+        customOption.dataset.round = savedRound;
+        customOption.textContent = `Round ${savedRound}: ${savedRace} (saved)`;
         select.appendChild(customOption);
     }
 
@@ -148,31 +160,51 @@ async function syncAppConfig() {
     console.log(`Config Synced: ${savedRace} (Round ${savedRound})`);
 }
 
+async function saveAppConfigValue(key, value) {
+    const { data: updatedRows, error: updateError } = await db
+        .from('app_config')
+        .update({ value: String(value) })
+        .eq('key', key)
+        .select('key');
+
+    if (updateError) throw updateError;
+    if (updatedRows?.length) return;
+
+    const { error: insertError } = await db
+        .from('app_config')
+        .insert([{ key, value: String(value) }]);
+
+    if (insertError) throw insertError;
+}
+
 async function saveSelectedRace() {
+    const select = document.getElementById('race-select');
+    const roundInput = document.getElementById('race-round-input');
     const raceName = getSelectedRaceName();
     updateHostTitle(raceName);
     if (!raceName) return;
 
-    const { data: updatedRows, error: updateErr } = await db
-        .from('app_config')
-        .update({ value: raceName })
-        .eq('key', 'selected_race_name')
-        .select('key');
+    const selectedRound = Number(select.selectedOptions[0]?.dataset.round);
+    const raceRound = Number.isInteger(selectedRound) && selectedRound > 0
+        ? selectedRound
+        : getSelectedRaceRound();
 
-    if (updateErr) {
-        console.error('Failed to save race selection.', updateErr);
-        alert('Could not save selected race.');
-        return;
-    }
+    roundInput.value = String(raceRound);
+    select.disabled = true;
+    roundInput.disabled = true;
 
-    if (!updatedRows || updatedRows.length === 0) {
-        const { error: insertErr } = await db
-            .from('app_config')
-            .insert([{ key: 'selected_race_name', value: raceName }]);
-        if (insertErr) {
-            console.error('Failed to insert race selection.', insertErr);
-            alert('Could not save selected race.');
-        }
+    try {
+        await Promise.all([
+            saveAppConfigValue('selected_race_name', raceName),
+            saveAppConfigValue('selected_race_round', raceRound)
+        ]);
+        console.log(`Race selection synced: ${raceName} (Round ${raceRound})`);
+    } catch (err) {
+        console.error('Failed to save race selection.', err);
+        alert('Could not save selected race and round.');
+    } finally {
+        select.disabled = false;
+        roundInput.disabled = false;
     }
 
 }
